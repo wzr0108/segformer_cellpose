@@ -306,15 +306,15 @@ class EncoderDecoderCellPose(BaseSegmentor):
                 crop_img = img_padded[:, :, y1:y2, x1:x2]
 
                 # normalize
-                # for channel in range(crop_img.shape[1]):
-                #     img_c = crop_img[0, channel, ...]
-                #     i99 = torch.quantile(img_c, 0.99)
-                #     i1 = torch.quantile(img_c, 0.01)
-                #     if i99 - i1 > 1e-3:
-                #         norm_img_c = (img_c - i1) / (i99 - i1)
-                #         crop_img[0, channel, ...] = norm_img_c
-                #     else:
-                #         crop_img[0, channel, ...] = 0
+                for channel in range(crop_img.shape[1]):
+                    img_c = crop_img[0, channel, ...]
+                    i99 = torch.quantile(img_c, 0.99)
+                    i1 = torch.quantile(img_c, 0.01)
+                    if i99 - i1 > 1e-3:
+                        norm_img_c = (img_c - i1) / (i99 - i1)
+                        crop_img[0, channel, ...] = norm_img_c
+                    else:
+                        crop_img[0, channel, ...] = 0
 
                 crop_seg_logit = self.encode_decode(crop_img, img_meta)
                 preds[..., y1 + pad_top:y2 - pad_top, x1 + pad_left:x2 - pad_left] = crop_seg_logit[...,

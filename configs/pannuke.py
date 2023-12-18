@@ -43,9 +43,9 @@ model = dict(
     train_cfg=dict(
         work_dir='./work_dirs/tissuenet'
     ),
-    test_cfg=dict(mode='whole')
-    # test_cfg=dict(mode='slide2', crop_size=(256, 256),
-    #               stride=(256, 256), crop_output_size=(200, 200))
+    # test_cfg=dict(mode='whole')
+    test_cfg=dict(mode='slide2', crop_size=(256, 256),
+                  stride=(256, 256), crop_output_size=(200, 200))
 )
 
 data_root = 'data/PanNuke/'
