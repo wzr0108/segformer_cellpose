@@ -7,14 +7,17 @@ from torch.utils.data import Dataset
 from . import CityscapesDataset
 
 import os
-import numpy as np
 import cv2
-import os.path as osp
+import json
+import random
+import colorsys
+
 from collections import OrderedDict
 from functools import reduce
 import warnings
 import scipy
 from scipy import ndimage
+from scipy.ndimage import measurements
 from scipy.ndimage.filters import maximum_filter1d
 import fastremap
 
@@ -518,6 +521,20 @@ def _extend_centers_gpu(neighbors, centers, isneighbor, Ly, Lx, n_iter=200):
     return mu_torch
 
 
+def random_colors(N, bright=True):
+    """Generate random colors.
+
+    To get visually distinct colors, generate them in HSV space then
+    convert to RGB.
+    """
+    random.seed(42)
+    brightness = 1.0 if bright else 0.7
+    hsv = [(i / N, 1, brightness) for i in range(N)]  # 最大值
+    colors = list(map(lambda c: colorsys.hsv_to_rgb(*c), hsv))
+    random.shuffle(colors)
+    return colors
+
+
 @DATASETS.register_module()
 class NucleiCellPoseDataset(NucleiDataset):
     CLASSES = ('Nuclei',)
@@ -644,6 +661,134 @@ class NucleiCellPoseDataset(NucleiDataset):
                        }
 
         return ret_metrics
+
+    def format_results(self, results, **kwargs):
+        for file_idx, res in enumerate(results):
+            pred = result_to_inst(res)[0]
+            # to ensure that the instance numbering is contiguous
+            pred = remap_label(pred, by_size=False)  # 0,1,2,...N
+            binary_map = pred.copy()
+            binary_map[binary_map > 0] = 1
+            label_idx = np.unique(pred)  # 0,1,2,...N
+
+            # [(y,x), ...]
+            inst_centroid_yx = measurements.center_of_mass(binary_map, pred, label_idx[1:])
+            inst_centroid_xy = [(each[1], each[0]) for each in inst_centroid_yx]
+
+            os.makedirs(kwargs['imgfile_prefix'], exist_ok=True)
+            img_info = self.img_infos[file_idx]
+            save_path = os.path.join(kwargs['imgfile_prefix'], img_info['filename'].split('.')[0] + '.npy')
+            np.save(save_path, pred)
+            pred_json = {
+                'nuc': dict()
+            }
+
+            inst_id_list = np.unique(pred)[1:]  # exclude background
+            inst_info_dict = {}
+            for inst_id in inst_id_list:
+                inst_map = pred == inst_id
+                # TODO: chane format of bbox output
+                rmin, rmax, cmin, cmax = self.get_bounding_box(inst_map)
+                inst_bbox = np.array([[rmin, cmin], [rmax, cmax]])
+                inst_map = inst_map[
+                           inst_bbox[0][0]: inst_bbox[1][0], inst_bbox[0][1]: inst_bbox[1][1]
+                           ]
+                inst_map = inst_map.astype(np.uint8)
+                inst_moment = cv2.moments(inst_map)
+                inst_contour = cv2.findContours(
+                    inst_map, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+                )
+                # * opencv protocol format may break
+                inst_contour = np.squeeze(inst_contour[0][0].astype("int32"))
+                # < 3 points dont make a contour, so skip, likely artifact too
+                # as the contours obtained via approximation => too small or sthg
+                if inst_contour.shape[0] < 3:
+                    continue
+                if len(inst_contour.shape) != 2:
+                    continue  # ! check for trickery shape
+                inst_centroid = [
+                    (inst_moment["m10"] / inst_moment["m00"]),
+                    (inst_moment["m01"] / inst_moment["m00"]),
+                ]
+                inst_centroid = np.array(inst_centroid)
+                inst_contour[:, 0] += inst_bbox[0][1]  # X
+                inst_contour[:, 1] += inst_bbox[0][0]  # Y
+                inst_centroid[0] += inst_bbox[0][1]  # X
+                inst_centroid[1] += inst_bbox[0][0]  # Y
+                inst_info_dict[int(inst_id)] = {  # inst_id should start at 1
+                    "bbox": inst_bbox,
+                    "centroid": inst_centroid,
+                    "contour": inst_contour,
+                    "type_prob": None,
+                    "type": None,
+                }
+
+            self.__save_json(os.path.join(kwargs['imgfile_prefix'], img_info['filename'].split('.')[0] + '.json'),
+                             inst_info_dict)
+            img = cv2.imread(os.path.join(self.img_dir, img_info["filename"]))
+            overlay = self.visualize_instances_dict(img, inst_info_dict, False)
+            cv2.imwrite(os.path.join(kwargs['imgfile_prefix'], img_info["filename"]), overlay)
+
+    def get_bounding_box(self, img):
+        """Get bounding box coordinate information."""
+        rows = np.any(img, axis=1)
+        cols = np.any(img, axis=0)
+        rmin, rmax = np.where(rows)[0][[0, -1]]
+        cmin, cmax = np.where(cols)[0][[0, -1]]
+        # due to python indexing, need to add 1 to max
+        # else accessing will be 1px in the box, not out
+        rmax += 1
+        cmax += 1
+        return [rmin, rmax, cmin, cmax]
+
+    def __save_json(self, path, old_dict, mag=None):
+        new_dict = {}
+        for inst_id, inst_info in old_dict.items():
+            new_inst_info = {}
+            for info_name, info_value in inst_info.items():
+                # convert to jsonable
+                if isinstance(info_value, np.ndarray):
+                    info_value = info_value.tolist()
+                new_inst_info[info_name] = info_value
+            new_dict[int(inst_id)] = new_inst_info
+
+        json_dict = {"mag": mag, "nuc": new_dict}  # to sync the format protocol
+        with open(path, "w") as handle:
+            json.dump(json_dict, handle)
+        return new_dict
+
+    def visualize_instances_dict(self, input_image, inst_dict, draw_dot=True, type_colour=None, line_thickness=2):
+        """Overlays segmentation results (dictionary) on image as contours.
+
+        Args:
+            input_image: input image
+            inst_dict: dict of output prediction, defined as in this library
+            draw_dot: to draw a dot for each centroid
+            type_colour: a dict of {type_id : (type_name, colour)} ,
+                         `type_id` is from 0-N and `colour` is a tuple of (R, G, B)
+            line_thickness: line thickness of contours
+        """
+        overlay = np.copy((input_image))
+        # overlay = np.zeros(input_image.shape, dtype=np.uint8)
+        inst_rng_colors = random_colors(len(inst_dict))
+        inst_rng_colors = np.array(inst_rng_colors) * 255
+        inst_rng_colors = inst_rng_colors.astype(np.uint8)
+
+        for idx, [inst_id, inst_info] in enumerate(inst_dict.items()):
+            inst_contour = inst_info["contour"]
+            if "type" in inst_info and type_colour is not None:
+                inst_colour = type_colour[inst_info["type"]][1]
+            else:
+                inst_colour = (inst_rng_colors[idx]).tolist()
+
+            # inst_colour = (0, 0, 0)  # 黑色
+            cv2.drawContours(overlay, [inst_contour], -1, inst_colour, line_thickness)
+
+            if draw_dot:
+                inst_centroid = inst_info["centroid"]
+                inst_centroid = tuple([int(v) for v in inst_centroid])
+                overlay = cv2.circle(overlay, inst_centroid, 2, (255, 0, 0), -1)
+        return overlay
 
 
 def follow_flows(dP, mask=None, niter=200, interp=True):

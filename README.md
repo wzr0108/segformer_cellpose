@@ -1,43 +1,42 @@
-## Environment
+# 环境准备
 
-python=3.7
+### python=3.8
 
-torch=1.9.1+cu111
+## 安装torch
 
-mmcv-full=1.6.1
+```
+pip install torch==1.9.1+cu111 torchvision==0.10.1+cu111 torchaudio==0.9.1 -f https://download.pytorch.org/whl/torch_stable.html
+```
 
-## Data prepare
+## 安装mmcv
 
-We downloaded the dataset from the official website of dsb2018 and tissuenet, and crop the training set of dsb2018 to 256x256. We put the processed data on Google Drive
+```
+pip install mmcv==1.6.1 -f https://download.openmmlab.com/mmcv/dist/cu111/torch1.9/index.html
+```
 
-Users can download and store it in the ./data folder, and unzip it
+## 安装环境
 
--- 
-    |-- data
-      |-- dsb2018
-        |-- images
-        |-- labels
-      |-- tissuenet_1.0
-        |-- images
-        |-- labels
-
-## Train
-
-`./tools/dist_train.sh configs/dsb.py 1`
-
-`./tools/dist_train.sh configs/tissuenet.py 1`
-
-### Eval
-
-`python ./tools/test.py configs/dsb.py <model_path> --eval all`
+```
+pip install -r requirements.txt
+```
 
 
 
-## Refernence
+# 下载权重
 
-[open-mmlab/mmsegmentation: OpenMMLab Semantic Segmentation Toolbox and Benchmark. (github.com)](https://github.com/open-mmlab/mmsegmentation)
+链接：https://pan.baidu.com/s/1KZbjxv91Xw_lG7ny-iwu8w?pwd=7m4j 
+提取码：7m4j 
 
-[lhoyer/DAFormer: [CVPR22\] Official Implementation of DAFormer: Improving Network Architectures and Training Strategies for Domain-Adaptive Semantic Segmentation (github.com)](https://github.com/lhoyer/DAFormer)
 
-[MouseLand/cellpose: a generalist algorithm for cellular segmentation with human-in-the-loop capabilities (github.com)](https://github.com/MouseLand/cellpose)
 
+# 推理
+
+```
+python test.py configs/config.py PATH-TO-CHECKPOINT --format-only --eval-options imgfile_prefix=./result
+```
+
+PATH-TO-CHECKPOINT是权重的路径
+
+结果保存在./result
+
+待推理图片的路径请看configs/config.py 110行

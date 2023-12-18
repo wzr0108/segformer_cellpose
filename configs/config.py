@@ -107,9 +107,10 @@ data = dict(
         pipeline=test_pipeline),
     test=dict(
         type='NucleiCellPoseDataset',
-        data_root=data_root,
-        img_dir='images/Fold 3/',
+        data_root="demo",  # 测试图片放在data_root/img_dir下，以img_suffix的后缀
+        img_dir='images/',
         ann_dir='labels/Fold 3/',
+        img_suffix='.png',
         pipeline=test_pipeline))
 
 optimizer = dict(

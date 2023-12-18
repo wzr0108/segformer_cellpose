@@ -36,9 +36,7 @@ from mmseg.models.uda.uda_decorator import UDADecorator, get_module
 from mmseg.models.utils.dacs_transforms import (denorm, get_class_masks,
                                                 get_mean_std, strong_transform,
                                                 color_jitter, gaussian_blur)
-from mmseg.models.utils.visualization import subplotimg
-from mmseg.utils.utils import downscale_label_ratio
-from mmdet.models.backbones.resnet import _BatchNorm
+
 
 @UDA.register_module()
 class SegPoseBeta(UDADecorator):
