@@ -123,7 +123,6 @@ optimizer = dict(
             pos_block=dict(decay_mult=0.0),
             norm=dict(decay_mult=0.0))))
 
-
 optimizer_config = dict(grad_clip=None)
 lr_config = dict(
     policy='poly',
